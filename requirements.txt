@@ -1,0 +1,4 @@
+py-cord ~= 2.5
+coverage ~= 5.2.1
+flake8 ~= 3.8.3
+mypy ~= 1.9
