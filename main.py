@@ -41,7 +41,7 @@ def find_tests() -> typing.List[TestFunction]:
         members = inspect.getmembers(module, inspect.isfunction)
         module_functions = [f[1] for f in members if f[0].startswith('test_')]
 
-        functions.append(*module_functions)
+        functions.extend(module_functions)
 
     return functions
 
