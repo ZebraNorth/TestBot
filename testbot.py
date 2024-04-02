@@ -2,11 +2,10 @@ import asyncio
 import discord
 import typing
 
-CheckFunction = typing.Callable[[asyncio.Future, discord.Message], typing.Coroutine[typing.Any, typing.Any, None]]
-ExpectingType = typing.Callable[[discord.Message], typing.Coroutine[typing.Any, typing.Any, None]] | None
+CheckFunction = typing.Callable[[discord.Message], typing.Coroutine[typing.Any, typing.Any, None]]
 
 current_guild = None
-current_expecting = None
+message_future = None
 
 
 def guild() -> discord.Guild:
@@ -31,21 +30,14 @@ def set_guild(new_guild: discord.Guild | None) -> None:
     current_guild = new_guild
 
 
-def expecting() -> ExpectingType:
+def receive_message(message: discord.Message) -> None:
     '''
-    Get the function that will process the next received message.
+    Handle a received message.
     '''
+    global message_future
 
-    return current_expecting
-
-
-def set_expecting(new_expecting: ExpectingType) -> None:
-    '''
-    Set the function that will process the next received message.
-    '''
-
-    global current_expecting
-    current_expecting = new_expecting
+    if message_future is not None and not message_future.done():
+        message_future.set_result(message)
 
 
 def channel(name: str) -> discord.abc.GuildChannel:
@@ -102,11 +94,13 @@ def text(value: str) -> CheckFunction:
     Raises an Exception if the actual text does not match the expected text.
     '''
 
-    async def check(future: asyncio.Future, message: discord.Message) -> None:
+    async def check(message: discord.Message) -> None:
+        '''
+        Check the text of the message.
+        '''
+
         if message.content != value:
             raise Exception('Expected: "' + value + '" Found: "' + message.content + '"')
-
-        future.set_result(True)
 
     return check
 
@@ -123,7 +117,11 @@ def embed(description: str, *fields: dict) -> CheckFunction:
     Raises an Exception if the actual embed does not match the expected embed.
     '''
 
-    async def check(future: asyncio.Future, message: discord.Message) -> None:
+    async def check(message: discord.Message) -> None:
+        '''
+        Check the embeds within the message.
+        '''
+
         if len(message.embeds) == 0:
             raise Exception('Expected embed "' + description + '", Found no embeds')
 
@@ -133,7 +131,7 @@ def embed(description: str, *fields: dict) -> CheckFunction:
 
         if len(message.embeds[0].fields) != len(fields):
             expected_count = str(len(message.embeds[0].fields))
-            raise Exception('Expected embed to have ' + expected_count + ', Found ' + str(len(fields)))
+            raise Exception('Expected embed to have ' + str(len(fields)) + ', Found ' + expected_count)
 
         for [i, expected] in enumerate(fields):
             for key, value in expected.items():
@@ -141,8 +139,6 @@ def embed(description: str, *fields: dict) -> CheckFunction:
                     expected_field = str(i) + ' to have "' + key + '" = "' + value
                     actual = message.embeds[0].fields[i].name
                     raise Exception('Expected embed field ' + expected_field + '", Found: "' + actual + '"')
-
-        future.set_result(True)
 
     return check
 
@@ -155,24 +151,31 @@ async def expect(channel: discord.TextChannel, expectation: CheckFunction) -> No
     expectation: The value expected to be recevied.
     '''
 
-    future = asyncio.get_running_loop().create_future()
-
-    def check(message: discord.Message) -> typing.Coroutine[typing.Any, typing.Any, None]:
-        '''
-        Close around the completion future and pass it in to the expectation.
-        '''
-
-        return expectation(future, message)
-
-    set_expecting(check)
+    global message_future
+    message_future = asyncio.get_running_loop().create_future()
 
     try:
-        async with asyncio.timeout(3):
-            await future
-    except TimeoutError:
-        raise Exception('Test timed out')
+        async with asyncio.timeout(8):
+            # Wait for the response from the bot under test.
+            await message_future
+
+            # Process the response.
+            await expectation(message_future.result())
+    except TimeoutError as e:
+        # TimeoutError does not have an error message, so create one.
+        expecting_func_name = expectation.__qualname__.split('.')[0]
+
+        closure = getattr(expectation, '__closure__', None)
+
+        if closure:
+            func_params = ', '.join([str(c.cell_contents) for c in closure])
+        else:
+            func_params = ''
+
+        description = expecting_func_name + '(' + func_params + ')'
+        raise Exception('Test timed out waiting for ' + description) from e
     finally:
-        set_expecting(None)
+        message_future = None
 
 
 def role(name: str) -> discord.Role:
