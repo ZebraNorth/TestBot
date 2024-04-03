@@ -5,6 +5,7 @@ import importlib
 import inspect
 import re
 import sys
+import time
 import typing
 from testbot import receive_message, set_default_channel, set_guild
 
@@ -96,6 +97,7 @@ async def on_message(message: discord.Message) -> None:
         regex = '.*' + message.content[6:].strip() + '.*'
 
         filtered_tests = [t for t in tests if re.match(regex, t.__name__)]
+        start_time = time.time()
 
         for test in filtered_tests:
             try:
@@ -120,6 +122,9 @@ async def on_message(message: discord.Message) -> None:
 
         for failure in failures:
             embed.add_field(name='❌ ' + failure['name'], value=failure['description'], inline=False)
+
+        duration = time.time() - start_time
+        embed.set_footer(text=f'Test suite completed in {duration:.2f} seconds')
 
         await message.channel.send(embed=embed)
 
