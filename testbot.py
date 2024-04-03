@@ -6,6 +6,8 @@ CheckFunction = typing.Callable[[discord.Message], typing.Coroutine[typing.Any, 
 
 current_guild = None
 message_future = None
+awaiting_from = 0
+default_channel = None
 
 
 def guild() -> discord.Guild:
@@ -30,6 +32,15 @@ def set_guild(new_guild: discord.Guild | None) -> None:
     current_guild = new_guild
 
 
+def set_default_channel(c: discord.TextChannel) -> None:
+    '''
+    Set the default channel to be returned if no channel name is given to text_channel().
+    '''
+
+    global default_channel
+    default_channel = c
+
+
 def receive_message(message: discord.Message) -> None:
     '''
     Handle a received message.
@@ -37,7 +48,8 @@ def receive_message(message: discord.Message) -> None:
     global message_future
 
     if message_future is not None and not message_future.done():
-        message_future.set_result(message)
+        if message.author.id == awaiting_from or message.channel.id == awaiting_from:
+            message_future.set_result(message)
 
 
 def channel(name: str) -> discord.abc.GuildChannel:
@@ -61,10 +73,19 @@ def channel(name: str) -> discord.abc.GuildChannel:
     raise Exception('Could not find channel ' + name)
 
 
-def text_channel(name: str) -> discord.TextChannel:
+def text_channel(name: str = '') -> discord.TextChannel:
     '''
     Fetch a text channel.
+
+    If the name is not specified then it selects the channel from which the "!test" command was issued.
     '''
+
+    if not name:
+        if default_channel is None:
+            raise Exception('No default channel')
+
+        return default_channel
+
     c = channel(name)
 
     if not isinstance(c, discord.TextChannel):
@@ -77,6 +98,7 @@ def voice_channel(name: str) -> discord.VoiceChannel:
     '''
     Fetch a voice channel.
     '''
+
     c = channel(name)
 
     if not isinstance(c, discord.VoiceChannel):
@@ -143,16 +165,19 @@ def embed(description: str, *fields: dict) -> CheckFunction:
     return check
 
 
-async def expect(channel: discord.TextChannel, expectation: CheckFunction) -> None:
+async def expect(sender: discord.TextChannel | discord.Member, expectation: CheckFunction) -> None:
     '''
     Expect a message from the bot under test.
 
-    channel: The channel on which the message is expected.
+    sender: The channel on which the message is expected or the user from which the message should originate.
     expectation: The value expected to be recevied.
     '''
 
     global message_future
+    global awaiting_from
+
     message_future = asyncio.get_running_loop().create_future()
+    awaiting_from = sender.id
 
     try:
         async with asyncio.timeout(8):
@@ -190,3 +215,16 @@ def role(name: str) -> discord.Role:
         raise Exception('Failed to find role: ' + name)
 
     return r
+
+
+def member(name: str) -> discord.Member:
+    '''
+    Fetch a member by name.
+    '''
+
+    u = discord.utils.get(guild().members, display_name=name)
+
+    if u is None:
+        raise Exception('Failed to find member: ' + name)
+
+    return u
