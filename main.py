@@ -3,11 +3,12 @@ import discord
 import glob
 import importlib
 import inspect
+import logging
 import re
 import sys
 import time
 import typing
-from testbot import receive_message, set_default_channel, set_guild
+from testbot import find_bot, get_bot, member_update, receive_message, set_bot, set_default_channel, set_guild
 
 # Test functions are async, take no parameters, and return None.
 TestFunction = typing.Callable[[], typing.Coroutine[typing.Any, typing.Any, None]]
@@ -18,7 +19,9 @@ intents.reactions = True
 intents.message_content = True
 
 bot = discord.Bot(intents=intents, guild_subscriptions=True)
-bot_under_test = None
+
+log = logging.getLogger('testbot')
+tests = []
 
 
 def find_tests() -> typing.List[TestFunction]:
@@ -53,7 +56,9 @@ def find_tests() -> typing.List[TestFunction]:
     return functions
 
 
-tests = find_tests()
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member) -> None:
+    member_update(after)
 
 
 @bot.event
@@ -62,15 +67,13 @@ async def on_message(message: discord.Message) -> None:
     Handle an incoming message.
     '''
 
-    global bot_under_test
-
     # Process messages from the bot under test.
-    if bot_under_test and message.author.id == bot_under_test.id:
+    if find_bot() and message.author.id == get_bot().id:
         receive_message(message)
 
     # Process the command to run the test suite.
     if message.content.startswith('!test'):
-        if bot_under_test:
+        if find_bot():
             await message.author.send('A test is already in progress')
             return
 
@@ -87,9 +90,11 @@ async def on_message(message: discord.Message) -> None:
         bot_under_test = discord.utils.get(message.guild.members, display_name=bot_name)
 
         if bot_under_test is None:
+            log.error('Failed to find bot ' + bot_name)
             await message.author.send('Cannot find bot to test: ' + bot_name)
             return
 
+        set_bot(bot_under_test)
         set_guild(message.guild)
         set_default_channel(message.channel)
 
@@ -101,6 +106,7 @@ async def on_message(message: discord.Message) -> None:
 
         for test in filtered_tests:
             try:
+                log.info('Running ' + test.__name__ + '...')
                 await message.channel.send('Running ' + test.__name__ + '...')
                 await test()
             except asyncio.CancelledError:
@@ -128,12 +134,35 @@ async def on_message(message: discord.Message) -> None:
 
         await message.channel.send(embed=embed)
 
-        bot_under_test = None
+        set_bot(None)
         set_guild(None)
+
+
+def configure_log() -> None:
+    '''
+    Set up the logger.
+    '''
+
+    log_handler = logging.StreamHandler()
+    log_handler.setLevel(logging.DEBUG)
+
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s')
+
+    log_handler.setFormatter(formatter)
+
+    log.addHandler(log_handler)
+
+    log.setLevel(logging.DEBUG)
 
 
 if len(sys.argv) != 2:
     print('Usage: python -m main <token>')
     exit(1)
+
+configure_log()
+
+tests = find_tests()
+
+log.debug('Found tests: ' + ', '.join([t.__name__ for t in tests]))
 
 bot.run(sys.argv[1])

@@ -1,13 +1,17 @@
 import asyncio
 import discord
+import functools
+import logging
 import typing
 
-CheckFunction = typing.Callable[[discord.Message], typing.Coroutine[typing.Any, typing.Any, None]]
+log = logging.getLogger('testbot')
+CheckFunction = typing.Callable[[typing.Any], typing.Coroutine[typing.Any, typing.Any, None]]
 
 current_guild = None
-message_future = None
+expect_future = None
 awaiting_from = 0
 default_channel = None
+bot_under_test = None
 
 
 def guild() -> discord.Guild:
@@ -41,15 +45,58 @@ def set_default_channel(c: discord.TextChannel) -> None:
     default_channel = c
 
 
+def get_bot() -> discord.Member:
+    '''
+    Get the Member object for the bot under test.
+
+    Raises an Exception if there is no bot under test.
+    '''
+
+    if bot_under_test is None:
+        raise Exception('No bot under test')
+
+    return bot_under_test
+
+
+def find_bot() -> discord.Member | None:
+    '''
+    Get the Member object for the bot under test, or None.
+    '''
+
+    return bot_under_test
+
+
+def set_bot(bot: discord.Member | None) -> None:
+    '''
+    Set the bot under test.
+    '''
+
+    global bot_under_test
+    bot_under_test = bot
+
+
+def member_update(member: discord.Member) -> None:
+    '''
+    Handle a change to a guild member.
+    '''
+
+    global expect_future
+
+    if expect_future is not None and not expect_future.done():
+        if member.id == awaiting_from:
+            expect_future.set_result(member)
+
+
 def receive_message(message: discord.Message) -> None:
     '''
     Handle a received message.
     '''
-    global message_future
 
-    if message_future is not None and not message_future.done():
+    global expect_future
+
+    if expect_future is not None and not expect_future.done():
         if message.author.id == awaiting_from or message.channel.id == awaiting_from:
-            message_future.set_result(message)
+            expect_future.set_result(message)
 
 
 def channel(name: str) -> discord.abc.GuildChannel:
@@ -112,17 +159,67 @@ def text(value: str) -> CheckFunction:
     Expect a text message.
 
     value: The text expected to be received.
-
-    Raises an Exception if the actual text does not match the expected text.
     '''
 
     async def check(message: discord.Message) -> None:
         '''
         Check the text of the message.
+
+        Raises an Exception if the actual text does not match the expected text.
         '''
 
         if message.content != value:
             raise Exception('Expected: "' + value + '" Found: "' + message.content + '"')
+
+    return check
+
+
+def add_role(role_name: str) -> CheckFunction:
+    '''
+    Expect a user to obtain the given role.
+    '''
+
+    async def check(member: discord.Member) -> None:
+        '''
+        Check that the member has a particular role.
+        Raises an exception if the user does not have the role.
+        '''
+
+        if discord.utils.get(member.roles, name=role_name) is None:
+            raise Exception('Expected role "' + role_name + '" to be added')
+
+    return check
+
+
+def remove_role(role_name: str) -> CheckFunction:
+    '''
+    Expect a user to have the given role removed.
+    '''
+
+    async def check(member: discord.Member) -> None:
+        '''
+        Check that the member has a particular role.
+        Raises an exception if the user does not have the role.
+        '''
+
+        if discord.utils.get(member.roles, name=role_name) is not None:
+            raise Exception('Expected role "' + role_name + '" to be removed')
+
+    return check
+
+
+def all(*checks: CheckFunction) -> CheckFunction:
+    '''
+    Require multiple checks to pass.
+    '''
+
+    async def check(arg: typing.Any) -> None:
+        '''
+        Call every check.
+        Raises an exception if any of them fail.
+        '''
+        for c in checks:
+            await c(arg)
 
     return check
 
@@ -165,6 +262,23 @@ def embed(description: str, *fields: dict) -> CheckFunction:
     return check
 
 
+def get_expectation_name(expectation: CheckFunction) -> str:
+    '''
+    Get a readable name for an expectation.
+    '''
+
+    expecting_func_name = expectation.__qualname__.split('.')[0]
+
+    closure = getattr(expectation, '__closure__', None)
+
+    if closure:
+        func_params = ', '.join([str(c.cell_contents) for c in closure])
+    else:
+        func_params = ''
+
+    return expecting_func_name + '(' + func_params + ')'
+
+
 async def expect(sender: discord.TextChannel | discord.Member, expectation: CheckFunction) -> None:
     '''
     Expect a message from the bot under test.
@@ -173,34 +287,56 @@ async def expect(sender: discord.TextChannel | discord.Member, expectation: Chec
     expectation: The value expected to be recevied.
     '''
 
-    global message_future
+    global expect_future
     global awaiting_from
 
-    message_future = asyncio.get_running_loop().create_future()
+    if not callable(expectation):
+        raise Exception('expect() parameter 2 must be a CheckFunction, found a ' + str(type(expectation)))
+
+    expectation_name = get_expectation_name(expectation)
+    expect_future = asyncio.get_running_loop().create_future()
     awaiting_from = sender.id
 
-    try:
-        async with asyncio.timeout(8):
-            # Wait for the response from the bot under test.
-            await message_future
+    log.debug('Testing expectation ' + expectation_name)
 
-            # Process the response.
-            await expectation(message_future.result())
+    try:
+        passed_synchronously = False
+
+        # If the sender is a Member then try running the check synchronously.
+        # A member_update event happens synchronously when adding or removing a role and so may
+        # have already happened by the time we get here.
+        # If it hasn't happened then keep waiting.
+        if isinstance(sender, discord.Member):
+            try:
+                await expectation(sender)
+                log.debug('Expectation passed synchronously')
+                passed_synchronously = True
+            except Exception:
+                # Ignore exceptions and try again asynchronously
+                pass
+
+        if not passed_synchronously:
+            async with asyncio.timeout(8):
+                # Keep trying until the test passes or times out.
+                while True:
+                    # Wait for the response from the bot under test.
+                    await expect_future
+
+                    # Process the response.
+                    try:
+                        result = expect_future.result()
+                        expect_future = asyncio.get_running_loop().create_future()
+                        await expectation(result)
+                        log.debug('Expectation passed asynchronously')
+                        break
+                    except Exception:
+                        # Failed to match.
+                        log.debug('Failed to meet expectations.  Retrying...')
     except TimeoutError as e:
         # TimeoutError does not have an error message, so create one.
-        expecting_func_name = expectation.__qualname__.split('.')[0]
-
-        closure = getattr(expectation, '__closure__', None)
-
-        if closure:
-            func_params = ', '.join([str(c.cell_contents) for c in closure])
-        else:
-            func_params = ''
-
-        description = expecting_func_name + '(' + func_params + ')'
-        raise Exception('Test timed out waiting for ' + description) from e
+        raise Exception('Test timed out waiting for ' + expectation_name) from e
     finally:
-        message_future = None
+        expect_future = None
 
 
 def role(name: str) -> discord.Role:
@@ -209,6 +345,7 @@ def role(name: str) -> discord.Role:
 
     Raises an Exception if the role is not found.
     '''
+
     r = discord.utils.get(guild().roles, name=name)
 
     if r is None:
@@ -228,3 +365,46 @@ def member(name: str) -> discord.Member:
         raise Exception('Failed to find member: ' + name)
 
     return u
+
+
+# The object being decorated is a function which accepts any arguments and returns any type.
+AnyFunction = typing.Callable[..., typing.Any]
+
+# The decorator factory returns a decorator, which i.
+DecoratorType = typing.Callable[[AnyFunction], AnyFunction]
+
+
+def with_role(name: str) -> DecoratorType:
+    '''
+    A function decorator for giving TestBot a certain role for the duration of a test.
+
+    The name parameter is the name of the role to assign.
+    '''
+
+    def decorator(func: AnyFunction) -> AnyFunction:
+        '''
+        Return a wrapper around the given function.
+        '''
+
+        @functools.wraps(func)
+        async def wrapper(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
+            '''
+            Assign a role, call the wrapped function, then remove the role.
+            '''
+
+            role = discord.utils.get(guild().roles, name=name)
+
+            if role is None:
+                raise Exception('Could not find a role with the name: ' + name)
+
+            await guild().me.add_roles(role)
+
+            result = await func(*args, **kwargs)
+
+            await guild().me.remove_roles(role)
+
+            return result
+
+        return wrapper
+
+    return decorator

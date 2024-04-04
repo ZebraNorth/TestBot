@@ -7,8 +7,8 @@ async def test_add_trusted_user_by_drone_id() -> None:
     '''
 
     ch = text_channel()
-    await ch.send('hc!add_trusted_user 1234')
-    await expect(ch, text('Request sent to "zebranorth". They have 24 hours to accept.'))
+    await ch.send('hc!add_trusted_user 3742')
+    await expect(ch, text('Request sent to "⬡-Drone #3742". They have 24 hours to accept.'))
 
 
 async def test_add_trusted_user_by_display_name() -> None:
@@ -17,8 +17,8 @@ async def test_add_trusted_user_by_display_name() -> None:
     '''
 
     ch = text_channel()
-    await ch.send('hc!add_trusted_user zebranorth')
-    await expect(ch, text('Request sent to "zebranorth". They have 24 hours to accept.'))
+    await ch.send('hc!add_trusted_user 3742')
+    await expect(ch, text('Request sent to "⬡-Drone #3742". They have 24 hours to accept.'))
 
 
 async def test_add_trusted_user_unknown_name() -> None:
