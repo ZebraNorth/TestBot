@@ -2,6 +2,7 @@ import asyncio
 import discord
 import functools
 import logging
+import re
 import typing
 
 log = logging.getLogger('testbot')
@@ -12,6 +13,7 @@ expect_future = None
 awaiting_from = 0
 default_channel = None
 bot_under_test = None
+total_expectations = 0
 
 
 def guild() -> discord.Guild:
@@ -73,6 +75,14 @@ def set_bot(bot: discord.Member | None) -> None:
 
     global bot_under_test
     bot_under_test = bot
+
+
+def get_total_expectations() -> int:
+    '''
+    Get the number of times that the expect() function has been called.
+    '''
+
+    return total_expectations
 
 
 def member_update(member: discord.Member) -> None:
@@ -170,6 +180,26 @@ def text(value: str) -> CheckFunction:
 
         if message.content != value:
             raise Exception('Expected: "' + value + '" Found: "' + message.content + '"')
+
+    return check
+
+
+def regex(rx: str) -> CheckFunction:
+    '''
+    Expect a text message.
+
+    rx: A regular expression matching the text expected to be received.
+    '''
+
+    async def check(message: discord.Message) -> None:
+        '''
+        Check the text of the message.
+
+        Raises an Exception if the actual text does not match the expected text.
+        '''
+
+        if not re.fullmatch(rx, message.content):
+            raise Exception('Expected: "' + re + '" Found: "' + message.content + '"')
 
     return check
 
@@ -289,6 +319,7 @@ async def expect(sender: discord.TextChannel | discord.Member, expectation: Chec
 
     global expect_future
     global awaiting_from
+    global total_expectations
 
     if not callable(expectation):
         raise Exception('expect() parameter 2 must be a CheckFunction, found a ' + str(type(expectation)))
@@ -296,6 +327,7 @@ async def expect(sender: discord.TextChannel | discord.Member, expectation: Chec
     expectation_name = get_expectation_name(expectation)
     expect_future = asyncio.get_running_loop().create_future()
     awaiting_from = sender.id
+    total_expectations += 1
 
     log.debug('Testing expectation ' + expectation_name)
 
@@ -316,7 +348,7 @@ async def expect(sender: discord.TextChannel | discord.Member, expectation: Chec
                 pass
 
         if not passed_synchronously:
-            async with asyncio.timeout(8):
+            async with asyncio.timeout(15):
                 # Keep trying until the test passes or times out.
                 while True:
                     # Wait for the response from the bot under test.

@@ -8,7 +8,8 @@ import re
 import sys
 import time
 import typing
-from testbot import find_bot, get_bot, member_update, receive_message, set_bot, set_default_channel, set_guild
+from testbot import (find_bot, get_total_expectations, member_update,
+                     receive_message, set_bot, set_default_channel, set_guild)
 
 # Test functions are async, take no parameters, and return None.
 TestFunction = typing.Callable[[], typing.Coroutine[typing.Any, typing.Any, None]]
@@ -68,7 +69,7 @@ async def on_message(message: discord.Message) -> None:
     '''
 
     # Process messages from the bot under test.
-    if find_bot() and message.author.id == get_bot().id:
+    if find_bot():
         receive_message(message)
 
     # Process the command to run the test suite.
@@ -115,8 +116,7 @@ async def on_message(message: discord.Message) -> None:
             except Exception as e:
                 failures.append({'name': test.__name__, 'description': str(e)})
 
-        total = str(len(filtered_tests))
-        description = 'Completed **' + total + '** tests with **' + str(len(failures)) + '** failures'
+        description = 'Checked **' + str(get_total_expectations()) + '** expectations with **' + str(len(failures)) + '** failures'
         colour = discord.Color.red() if len(failures) else discord.Color.green()
 
         if len(failures):
