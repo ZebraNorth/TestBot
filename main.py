@@ -22,7 +22,7 @@ intents.message_content = True
 bot = discord.Bot(intents=intents, guild_subscriptions=True)
 
 log = logging.getLogger('testbot')
-tests = []
+tests: typing.List[TestFunction] = []
 
 
 def find_tests() -> typing.List[TestFunction]:
