@@ -199,7 +199,7 @@ def regex(rx: str) -> CheckFunction:
         '''
 
         if not re.fullmatch(rx, message.content):
-            raise Exception('Expected: "' + re + '" Found: "' + message.content + '"')
+            raise Exception('Expected: "' + rx + '" Found: "' + message.content + '"')
 
     return check
 
