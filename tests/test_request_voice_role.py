@@ -13,7 +13,13 @@ async def test_store_release() -> None:
 
     # Store the drone.
     await storage_facility.send('0006 :: 3742 :: 1 :: Test storage')
-    await expect(storage_facility, text('Drone 3742 has been stored away in the Hive Storage Chambers by the Hive Mxtress for 1 hour and for the following reason: Test storage'))
+    await expect(
+        storage_facility,
+        text(
+            'Drone 3742 has been stored away in the Hive Storage Chambers by the Hive Mxtress'
+            ' for 1 hour and for the following reason: Test storage'
+        )
+    )
 
     # Release the drone.
     await ch.send('hc!release 3742')

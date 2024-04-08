@@ -74,16 +74,16 @@ async def on_message(message: discord.Message) -> None:
 
     # Process the command to run the test suite.
     if message.content.startswith('!test'):
-        if find_bot():
-            await message.author.send('A test is already in progress')
-            return
-
         if message.guild is None:
             await message.author.send('This command cannot be used in DM')
             return
 
         if not isinstance(message.channel, discord.TextChannel):
             await message.author.send('This command can only be used in a text channel')
+            return
+
+        if find_bot():
+            await message.channel.send('A test is already in progress')
             return
 
         # Find the bot to test.
@@ -116,7 +116,14 @@ async def on_message(message: discord.Message) -> None:
             except Exception as e:
                 failures.append({'name': test.__name__, 'description': str(e)})
 
-        description = 'Checked **' + str(get_total_expectations()) + '** expectations with **' + str(len(failures)) + '** failures'
+        description = (
+            'Checked **'
+            + str(get_total_expectations())
+            + '** expectations with **'
+            + str(len(failures))
+            + '** failures'
+        )
+
         colour = discord.Color.red() if len(failures) else discord.Color.green()
 
         if len(failures):

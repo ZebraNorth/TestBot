@@ -254,6 +254,27 @@ def all(*checks: CheckFunction) -> CheckFunction:
     return check
 
 
+def any(*checks: CheckFunction) -> CheckFunction:
+    '''
+    Require at least one of multiple checks to pass.
+    '''
+
+    async def check(arg: typing.Any) -> None:
+        '''
+        Call every check.
+        Raises an exception if all of them fail.
+        '''
+
+        for c in checks:
+            try:
+                await c(arg)
+                return
+            except Exception:
+                pass
+
+    return check
+
+
 def embed(description: str, *fields: dict) -> CheckFunction:
     '''
     Expect a message with an embed.
