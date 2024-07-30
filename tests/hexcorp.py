@@ -71,7 +71,8 @@ def as_hive_mxtress(func: AnyFunction) -> AnyFunction:
 
         if discord.utils.get(me.roles, name='⬡-Drone'):
             log.debug('Unassigning as drone')
-            ch = testbot.text_channel()
+            # Unassign in the moderation channel so it still works even if speech optimization is enabled.
+            ch = testbot.text_channel('moderation-channel')
             await ch.send('hc!unassign')
 
             # The bot will try to respond with a DM but this will fail because bots cannot DM other bots.

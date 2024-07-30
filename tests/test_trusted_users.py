@@ -1,6 +1,8 @@
 from testbot import expect, text, text_channel
+from tests.hexcorp import as_drone
 
 
+@as_drone
 async def test_add_trusted_user_by_drone_id() -> None:
     '''
     Ensure that add_trusted_user with a drone ID adds the user request.
@@ -11,6 +13,7 @@ async def test_add_trusted_user_by_drone_id() -> None:
     await expect(ch, text('Request sent to "⬡-Drone #3742". They have 24 hours to accept.'))
 
 
+@as_drone
 async def test_add_trusted_user_by_display_name() -> None:
     '''
     Ensure that add_trusted_user with display name adds the user request.
@@ -21,6 +24,7 @@ async def test_add_trusted_user_by_display_name() -> None:
     await expect(ch, text('Request sent to "⬡-Drone #3742". They have 24 hours to accept.'))
 
 
+@as_drone
 async def test_add_trusted_user_unknown_name() -> None:
     '''
     Ensure that an invalid name gives an error message.
@@ -28,9 +32,10 @@ async def test_add_trusted_user_unknown_name() -> None:
 
     ch = text_channel()
     await ch.send('hc!add_trusted_user "beep boop"')
-    await expect(ch, text('No user with name "beep boop" found.'))
+    await expect(ch, text('Could not find member beep boop'))
 
 
+@as_drone
 async def test_add_self_as_trusted_user() -> None:
     '''
     Ensure that you cannot add yourself as a trusted user.

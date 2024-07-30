@@ -349,6 +349,7 @@ async def expect(sender: discord.TextChannel | discord.Member, expectation: Chec
     expect_future = asyncio.get_running_loop().create_future()
     awaiting_from = sender.id
     total_expectations += 1
+    messages = []
 
     log.debug('Testing expectation ' + expectation_name)
 
@@ -378,6 +379,7 @@ async def expect(sender: discord.TextChannel | discord.Member, expectation: Chec
                     # Process the response.
                     try:
                         result = expect_future.result()
+                        messages.append(result)
                         expect_future = asyncio.get_running_loop().create_future()
                         await expectation(result)
                         log.debug('Expectation passed asynchronously')
@@ -387,7 +389,12 @@ async def expect(sender: discord.TextChannel | discord.Member, expectation: Chec
                         log.debug('Failed to meet expectations.  Retrying...')
     except TimeoutError as e:
         # TimeoutError does not have an error message, so create one.
-        raise Exception('Test timed out waiting for ' + expectation_name) from e
+        msg = 'Test timed out waiting for ' + expectation_name
+
+        if len(messages):
+            msg += '. Received: ' + ', '.join(messages)
+
+        raise Exception(msg) from e
     finally:
         expect_future = None
 

@@ -6,9 +6,9 @@ async def test_list_forbidden_words() -> None:
     office = text_channel('hex-office')
     await office.send('hc!list_forbidden_words')
     embeds = [
+        {'name': 'morning', 'value': 'Pattern: `m+o+r+n+i+n+g+`'},
         {'name': 'think', 'value': 'Pattern: `t+h+i+n+k+`'},
         {'name': 'thought', 'value': 'Pattern: `t+h+o+u+g+h+t+`'},
-        {'name': 'morning', 'value': 'Pattern: `m+o+r+n+i+n+g+`'},
     ]
     await expect(office, embed('These are the currently configured forbidden words.', *embeds))
 
@@ -26,10 +26,10 @@ async def test_add_remove_forbidden_word() -> None:
     # Check that it has been added.
     await office.send('hc!list_forbidden_words')
     embeds = [
-        {'name': 'think', 'value': 'Pattern: `t+h+i+n+k+`'},
-        {'name': 'thought', 'value': 'Pattern: `t+h+o+u+g+h+t+`'},
         {'name': 'morning', 'value': 'Pattern: `m+o+r+n+i+n+g+`'},
         {'name': 'test pattern', 'value': 'Pattern: `hello.*world`'},
+        {'name': 'think', 'value': 'Pattern: `t+h+i+n+k+`'},
+        {'name': 'thought', 'value': 'Pattern: `t+h+o+u+g+h+t+`'},
     ]
     await expect(office, embed('These are the currently configured forbidden words.', *embeds))
 
@@ -41,5 +41,5 @@ async def test_add_remove_forbidden_word() -> None:
 
     # Check that it has been removed.
     await office.send('hc!list_forbidden_words')
-    embeds.pop()
+    embeds = [e for e in embeds if e['name'] != 'test pattern']
     await expect(office, embed('These are the currently configured forbidden words.', *embeds))
